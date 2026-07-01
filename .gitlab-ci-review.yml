@@ -1,0 +1,85 @@
+# AI PR Reviewer — GitLab CI Configuration
+#
+# Setup:
+#   1. Copy this file as .gitlab-ci.yml (or include it in your existing pipeline)
+#   2. Set CI/CD variables:
+#      - AI_REVIEWER_API_URL: Your Lambda Function URL
+#      - GITLAB_TOKEN: GitLab token with API scope (for posting MR comments)
+#      - AI_REVIEWER_TOKEN: (Optional) Auth token for the reviewer API
+#
+# Every merge request will get an AI security review posted as an MR note.
+
+stages:
+  - review
+
+ai-security-review:
+  stage: review
+  image: alpine:3.18
+  
+  # Only run on merge requests
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_MERGE_REQUEST_IID
+  
+  before_script:
+    - apk add --no-cache curl jq
+
+  script:
+    - |
+      # Build auth header
+      AUTH_HEADER=""
+      if [ -n "$AI_REVIEWER_TOKEN" ]; then
+        AUTH_HEADER="-H 'Authorization: Bearer $AI_REVIEWER_TOKEN'"
+      fi
+      
+      # Extract namespace and project
+      NAMESPACE=$(echo "$CI_PROJECT_NAMESPACE" | sed 's|/|%2F|g')
+      
+      # Call AI PR Reviewer API with GitLab webhook format
+      RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${AI_REVIEWER_API_URL}" \
+        -H 'Content-Type: application/json' \
+        -H 'X-Gitlab-Event: Merge Request Hook' \
+        $AUTH_HEADER \
+        -d "{
+          \"object_kind\": \"merge_request\",
+          \"object_attributes\": {
+            \"iid\": ${CI_MERGE_REQUEST_IID},
+            \"action\": \"open\",
+            \"source_branch\": \"${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}\",
+            \"target_branch\": \"${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}\",
+            \"title\": \"${CI_MERGE_REQUEST_TITLE}\",
+            \"last_commit\": { \"id\": \"${CI_COMMIT_SHA}\" }
+          },
+          \"project\": {
+            \"path_with_namespace\": \"${CI_PROJECT_PATH}\",
+            \"http_url\": \"${CI_PROJECT_URL}.git\"
+          },
+          \"user\": { \"username\": \"${GITLAB_USER_LOGIN}\" }
+        }")
+      
+      HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+      BODY=$(echo "$RESPONSE" | sed '$d')
+      
+      echo "HTTP Status: $HTTP_CODE"
+      echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+      
+      if [ "$HTTP_CODE" -ne 200 ]; then
+        echo "WARNING: AI Review returned HTTP $HTTP_CODE — continuing (review is advisory)"
+        exit 0
+      fi
+      
+      # Check risk level
+      RISK=$(echo "$BODY" | jq -r '.risk_level // "unknown"')
+      echo "Risk Level: $RISK"
+      
+      # Fail pipeline only for critical
+      if [ "$RISK" = "critical" ]; then
+        echo "ERROR: Critical security vulnerability detected"
+        exit 1
+      fi
+
+  # Don't block the pipeline if the review service is down
+  allow_failure: true
+  
+  variables:
+    GIT_STRATEGY: none  # No need to clone — the API handles it

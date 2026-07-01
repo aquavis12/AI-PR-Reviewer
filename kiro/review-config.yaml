@@ -1,0 +1,102 @@
+# Kiro Headless Agent Configuration for AI PR Reviewer
+# 
+# Usage:
+#   kiro review --config kiro/review-config.yaml --pr <number>
+#   kiro review --config kiro/review-config.yaml --watch  (continuous mode)
+
+agent:
+  name: ai-pr-reviewer
+  mode: headless
+  spec: kiro/review-spec.md
+
+trigger:
+  events:
+    - pull_request.opened
+    - pull_request.synchronize
+    - pull_request.reopened
+  # For GitLab:
+  # - merge_request.open
+  # - merge_request.update
+
+review:
+  focus:
+    - security
+    - quality
+    - performance
+    - correctness
+  
+  # How many surrounding (unchanged) files to read for context
+  context_files: 10
+  
+  # Review depth: quick (~10s), standard (~30s), deep (~60s)
+  depth: standard
+  
+  # Maximum inline comments to post
+  max_inline_comments: 10
+  
+  # Only review files matching these patterns
+  include_patterns:
+    - "**/*.py"
+    - "**/*.js"
+    - "**/*.ts"
+    - "**/*.java"
+    - "**/*.go"
+    - "**/*.rs"
+    - "**/*.rb"
+    - "**/*.php"
+    - "**/*.yaml"
+    - "**/*.yml"
+    - "**/*.json"
+    - "Dockerfile*"
+    - "**/Makefile"
+  
+  # Skip these files
+  exclude_patterns:
+    - "**/*.md"
+    - "**/*.txt"
+    - "**/LICENSE*"
+    - "**/CHANGELOG*"
+    - "**/*.lock"
+    - "**/node_modules/**"
+    - "**/__pycache__/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/.git/**"
+
+output:
+  # Post summary comment on PR/MR
+  summary_comment: true
+  
+  # Post inline comments on specific lines
+  inline_comments: true
+  
+  # Set commit status check
+  commit_status: true
+  
+  # Risk level that triggers a failing status
+  fail_on: critical  # critical | high | medium | never
+
+ai:
+  # AI model to use for analysis
+  provider: bedrock
+  model: moonshotai.kimi-k2.5
+  temperature: 0.2
+  max_tokens: 4000
+  
+  # Alternative: use OpenAI
+  # provider: openai
+  # model: gpt-4o
+  # api_key: ${OPENAI_API_KEY}
+
+# Provider configuration (auto-detected from environment)
+git_provider:
+  # GitHub
+  github:
+    token: ${GITHUB_TOKEN}
+    # webhook_secret: ${GITHUB_WEBHOOK_SECRET}
+  
+  # GitLab (supports self-hosted)
+  gitlab:
+    token: ${GITLAB_TOKEN}
+    base_url: https://gitlab.com
+    # webhook_secret: ${GITLAB_WEBHOOK_SECRET}

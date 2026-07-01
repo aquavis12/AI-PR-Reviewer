@@ -1,0 +1,38 @@
+# AI PR Reviewer Configuration
+# Copy this as config.yaml and customize
+
+# Git provider: github | gitlab
+provider: github
+
+# AI model configuration
+ai:
+  provider: bedrock          # bedrock | openai
+  model: moonshotai.kimi-k2.5  # Bedrock model ID (or OpenAI model name)
+  temperature: 0.2
+  max_tokens: 4000
+
+# Review behavior
+review:
+  post_comment: true         # Post findings as PR/MR comment
+  set_status: true           # Set commit status check (pass/fail)
+  fail_on: critical          # Fail check on: critical | high | medium | never
+  max_inline_comments: 10    # Max inline comments per review
+  ignore_paths:              # Skip these paths from review
+    - "*.md"
+    - "*.txt"
+    - "docs/*"
+    - "test/*"
+    - "*.lock"
+
+# Kiro headless integration (optional)
+kiro:
+  enabled: false
+  spec: kiro/review-spec.md
+  depth: standard            # quick | standard | deep
+
+# Scans to run (when using full scan mode)
+scans:
+  security: true
+  quality: true
+  owasp: true
+  supply_chain: true

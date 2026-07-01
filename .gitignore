@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Deployment artifacts
+*.zip
+layer/
+deployment/
+
+# Config (contains secrets)
+config.yaml
+!config.example.yaml
+
+# Environment
+.env
+.env.local
+
+# Node (for Kiro)
+node_modules/

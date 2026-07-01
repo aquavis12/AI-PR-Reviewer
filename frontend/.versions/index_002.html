@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI PR Reviewer</title>
+    <meta name="description" content="Automated AI-powered code review for GitHub and GitLab PRs">
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border: #30363d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --accent: #58a6ff;
+            --accent-hover: #79c0ff;
+            --success: #3fb950;
+            --warning: #d29922;
+            --danger: #f85149;
+            --critical: #da3633;
+            --purple: #a371f7;
+            --radius: 8px;
+        }
+        [data-theme="light"] {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f6f8fa;
+            --bg-tertiary: #eaeef2;
+            --border: #d0d7de;
+            --text-primary: #1f2328;
+            --text-secondary: #656d76;
+            --text-muted: #8c959f;
+            --accent: #0969da;
+            --accent-hover: #0550ae;
+            --success: #1a7f37;
+            --warning: #9a6700;
+            --danger: #cf222e;
+            --critical: #a40e26;
+            --purple: #8250df;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .header-left h1 { font-size: 20px; font-weight: 600; }
+        .header-left .badge {
+            background: var(--accent); color: #fff; font-size: 11px;
+            padding: 2px 8px; border-radius: 12px; font-weight: 500;
+        }
+        .header-right { display: flex; align-items: center; gap: 12px; }
+        .theme-toggle {
+            background: none; border: 1px solid var(--border); color: var(--text-secondary);
+            width: 36px; height: 36px; border-radius: 50%; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-size: 16px;
+        }
+        .theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+        .nav-tabs {
+            display: flex; background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border); padding: 0 24px;
+        }
+        .nav-tab {
+            padding: 12px 20px; cursor: pointer; color: var(--text-secondary);
+            font-size: 14px; font-weight: 500; border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .nav-tab:hover { color: var(--text-primary); }
+        .nav-tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
+        .nav-tab .count {
+            background: var(--bg-tertiary); color: var(--text-secondary);
+            font-size: 11px; padding: 1px 6px; border-radius: 10px; margin-left: 6px;
+        }
+        .main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .card {
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 24px; margin-bottom: 20px;
+        }
+        .card h2 { font-size: 16px; margin-bottom: 16px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+        .form-row-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+        input, select, textarea {
+            width: 100%; padding: 10px 12px; background: var(--bg-primary);
+            border: 1px solid var(--border); border-radius: 6px;
+            color: var(--text-primary); font-size: 14px; font-family: inherit;
+        }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+        textarea { resize: vertical; min-height: 80px; }
+        .btn {
+            padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: 500;
+            cursor: pointer; border: 1px solid var(--border); display: inline-flex;
+            align-items: center; gap: 8px; transition: all 0.2s;
+        }
+        .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); }
+        .btn-danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+        .btn-danger:hover { background: var(--danger); color: #fff; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        .provider-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+        .provider-card {
+            border: 2px solid var(--border); border-radius: var(--radius);
+            padding: 16px; text-align: center; cursor: pointer; transition: all 0.2s;
+        }
+        .provider-card:hover { border-color: var(--accent); }
+        .provider-card.selected { border-color: var(--accent); background: rgba(88, 166, 255, 0.05); }
+        .provider-card .icon { font-size: 28px; margin-bottom: 8px; }
+        .provider-card .name { font-size: 14px; font-weight: 500; }
+        .scan-toggles { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+        .scan-toggle {
+            display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+            background: var(--bg-tertiary); border: 1px solid var(--border);
+            border-radius: 20px; font-size: 13px; cursor: pointer; transition: all 0.2s;
+        }
+        .scan-toggle.active { background: rgba(88, 166, 255, 0.1); border-color: var(--accent); color: var(--accent); }
+        .scan-toggle input { display: none; }
+        .result-card {
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: var(--radius); overflow: hidden; margin-bottom: 16px;
+        }
+        .result-header {
+            padding: 16px 20px; display: flex; align-items: center;
+            justify-content: space-between; border-bottom: 1px solid var(--border);
+        }
+        .risk-badge {
+            padding: 4px 12px; border-radius: 20px; font-size: 12px;
+            font-weight: 600; text-transform: uppercase;
+        }
+        .risk-low { background: rgba(63, 185, 80, 0.15); color: var(--success); }
+        .risk-medium { background: rgba(210, 153, 34, 0.15); color: var(--warning); }
+        .risk-high { background: rgba(248, 81, 73, 0.15); color: var(--danger); }
+        .risk-critical { background: rgba(218, 54, 51, 0.15); color: var(--critical); }
+        .risk-unknown { background: var(--bg-tertiary); color: var(--text-muted); }
+        .result-body { padding: 20px; }
+        .result-meta { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+        .result-meta span { font-size: 13px; color: var(--text-secondary); }
+        .findings-table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+        .findings-table th, .findings-table td {
+            padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px;
+        }
+        .findings-table th { color: var(--text-secondary); font-weight: 500; background: var(--bg-tertiary); }
+        .recommendations-list { list-style: none; padding: 0; }
+        .recommendations-list li {
+            padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px;
+        }
+        .recommendations-list li:last-child { border-bottom: none; }
+        .history-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 20px; border-bottom: 1px solid var(--border); transition: background 0.2s;
+        }
+        .history-item:hover { background: var(--bg-tertiary); }
+        .history-left { display: flex; align-items: center; gap: 12px; }
+        .history-left .icon-box {
+            width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+            background: var(--bg-tertiary); border-radius: 6px; font-size: 16px;
+        }
+        .history-left .info h4 { font-size: 14px; font-weight: 500; }
+        .history-left .info p { font-size: 12px; color: var(--text-muted); }
+        .history-right { display: flex; align-items: center; gap: 12px; }
+        .history-right .duration { font-size: 12px; color: var(--text-muted); }
+        .context-file {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 16px; border-bottom: 1px solid var(--border);
+        }
+        .context-file:last-child { border-bottom: none; }
+        .context-file .file-name { font-size: 14px; font-weight: 500; }
+        .context-file .file-desc { font-size: 12px; color: var(--text-muted); }
+        .scan-progress { display: none; margin-top: 16px; }
+        .scan-progress.active { display: block; }
+        .progress-bar {
+            height: 4px; background: var(--bg-tertiary); border-radius: 2px;
+            overflow: hidden; margin-bottom: 12px;
+        }
+        .progress-bar .fill {
+            height: 100%; background: var(--accent); border-radius: 2px;
+            width: 0%; transition: width 0.3s;
+        }
+        .progress-steps { list-style: none; }
+        .progress-steps li { padding: 4px 0; font-size: 13px; color: var(--text-muted); }
+        .progress-steps li.done { color: var(--success); }
+        .progress-steps li.running { color: var(--text-primary); }
+        .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+        .empty-state h3 { font-size: 18px; color: var(--text-secondary); margin-bottom: 8px; }
+        .setting-group { padding: 16px 0; border-bottom: 1px solid var(--border); }
+        .setting-group:last-child { border-bottom: none; }
+        .setting-group h3 { font-size: 14px; margin-bottom: 12px; }
+        @media (max-width: 768px) {
+            .form-row { grid-template-columns: 1fr; }
+            .form-row-2 { grid-template-columns: 1fr; }
+            .provider-cards { grid-template-columns: 1fr; }
+            .main { padding: 16px; }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-left">
+            <span style="font-size: 24px;">&#x1F6E1;&#xFE0F;</span>
+            <h1>AI PR Reviewer</h1>
+            <span class="badge">v1.0</span>
+        </div>
+        <div class="header-right">
+            <a href="https://github.com/aquavis12/AI-PR-Reviewer" target="_blank" style="color: var(--text-secondary); text-decoration: none; font-size: 20px;">&#9679;</a>
+            <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#9790;</button>
+        </div>
+    </header>
+
+    <nav class="nav-tabs">
+        <div class="nav-tab active" data-tab="review">Review</div>
+        <div class="nav-tab" data-tab="history">History <span class="count" id="history-count">0</span></div>
+        <div class="nav-tab" data-tab="context">Context Files</div>
+        <div class="nav-tab" data-tab="settings">Settings</div>
+    </nav>
+
+    <main class="main">
+        <!-- Review Tab -->
+        <div class="tab-content active" id="tab-review">
+            <div class="card">
+                <h2>Trigger PR Review</h2>
+                <div class="form-group">
+                    <label>Provider</label>
+                    <div class="provider-cards">
+                        <div class="provider-card selected" data-provider="github">
+                            <div class="icon">&#128025;</div>
+                            <div class="name">GitHub</div>
+                        </div>
+                        <div class="provider-card" data-provider="gitlab">
+                            <div class="icon" style="color: #FC6D26;">&#9670;</div>
+                            <div class="name">GitLab</div>
+                        </div>
+                        <div class="provider-card" data-provider="kiro">
+                            <div class="icon" style="color: var(--purple);">&#9881;</div>
+                            <div class="name">Kiro Headless</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Owner / Namespace</label>
+                        <input type="text" id="input-owner" placeholder="aquavis12">
+                    </div>
+                    <div class="form-group">
+                        <label>Repository</label>
+                        <input type="text" id="input-repo" placeholder="my-app">
+                    </div>
+                    <div class="form-group">
+                        <label>PR / MR Number</label>
+                        <input type="number" id="input-pr" placeholder="42" min="1">
+                    </div>
+                </div>
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label>Branch (optional)</label>
+                        <input type="text" id="input-branch" placeholder="feature/my-branch">
+                    </div>
+                    <div class="form-group">
+                        <label>SHA (optional)</label>
+                        <input type="text" id="input-sha" placeholder="abc123def">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Scans</label>
+                    <div class="scan-toggles">
+                        <label class="scan-toggle active"><input type="checkbox" name="scan" value="security" checked> Security</label>
+                        <label class="scan-toggle active"><input type="checkbox" name="scan" value="quality" checked> Quality</label>
+                        <label class="scan-toggle active"><input type="checkbox" name="scan" value="owasp" checked> OWASP</label>
+                        <label class="scan-toggle"><input type="checkbox" name="scan" value="terraform"> Terraform</label>
+                        <label class="scan-toggle"><input type="checkbox" name="scan" value="cloudformation"> CloudFormation</label>
+                        <label class="scan-toggle"><input type="checkbox" name="scan" value="cost"> Cost</label>
+                    </div>
+                </div>
+                <button class="btn btn-primary" id="btn-review" onclick="triggerReview()">&#9654; Start Review</button>
+                <div class="scan-progress" id="scan-progress">
+                    <div class="progress-bar"><div class="fill" id="progress-fill"></div></div>
+                    <ul class="progress-steps" id="progress-steps">
+                        <li class="running">Fetching PR diff...</li>
+                        <li>Analyzing changes...</li>
+                        <li>Running security scans (MicroVM)...</li>
+                        <li>AI review (Bedrock Kimi K2.5)...</li>
+                        <li>Posting comment...</li>
+                    </ul>
+                </div>
+            </div>
+            <div id="results-container"></div>
+        </div>
+
+        <!-- History Tab -->
+        <div class="tab-content" id="tab-history">
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <h2 style="margin: 0;">Review History</h2>
+                    <button class="btn btn-danger btn-sm" onclick="clearHistory()">Clear All</button>
+                </div>
+                <div id="history-list">
+                    <div class="empty-state">
+                        <h3>No reviews yet</h3>
+                        <p>Trigger a PR review to see results here</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Context Files Tab -->
+        <div class="tab-content" id="tab-context">
+            <div class="card">
+                <h2>Context Files</h2>
+                <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 16px;">
+                    Context files provide domain knowledge to the AI reviewer. Works with both Bedrock and Kiro.
+                </p>
+                <div class="form-row-2" style="margin-bottom: 16px;">
+                    <div class="form-group" style="margin: 0;">
+                        <input type="text" id="context-name" placeholder="terraform/standards.md">
+                    </div>
+                    <button class="btn btn-primary" onclick="uploadContext()">Upload</button>
+                </div>
+                <div class="form-group">
+                    <textarea id="context-content" placeholder="## Your Standards&#10;&#10;- All S3 buckets must be encrypted&#10;- No 0.0.0.0/0 in security groups" rows="5"></textarea>
+                </div>
+                <div id="context-list" style="border: 1px solid var(--border); border-radius: 6px; margin-top: 16px;">
+                    <div class="context-file">
+                        <div><div class="file-name">global.md</div><div class="file-desc">Code quality + security baseline</div></div>
+                    </div>
+                    <div class="context-file">
+                        <div><div class="file-name">cost-policy.md</div><div class="file-desc">Budget thresholds + resource limits</div></div>
+                    </div>
+                    <div class="context-file">
+                        <div><div class="file-name">terraform/standards.md</div><div class="file-desc">Terraform naming, tags, security</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div class="tab-content" id="tab-settings">
+            <div class="card">
+                <h2>Configuration</h2>
+                <div class="setting-group">
+                    <h3>API Endpoint</h3>
+                    <div class="form-group">
+                        <label>Lambda Function URL</label>
+                        <input type="url" id="setting-api-url" placeholder="https://YOUR_FUNCTION_URL.lambda-url.us-east-1.on.aws">
+                    </div>
+                </div>
+                <div class="setting-group">
+                    <h3>AI Configuration</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>AI Provider</label>
+                            <select id="setting-ai-provider">
+                                <option value="bedrock">AWS Bedrock</option>
+                                <option value="openai">OpenAI</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Model</label>
+                            <input type="text" id="setting-model" value="moonshotai.kimi-k2.5">
+                        </div>
+                        <div class="form-group">
+                            <label>Fail On</label>
+                            <select id="setting-fail-on">
+                                <option value="critical">Critical</option>
+                                <option value="high">High</option>
+                                <option value="medium">Medium</option>
+                                <option value="never">Never</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="setting-group">
+                    <h3>Cost Estimation</h3>
+                    <div class="form-row-2">
+                        <div class="form-group">
+                            <label>Cost Threshold (monthly, USD)</label>
+                            <input type="number" id="setting-cost-threshold" value="50" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Kiro Depth</label>
+                            <select id="setting-kiro-depth">
+                                <option value="quick">Quick (~10s)</option>
+                                <option value="standard" selected>Standard (~30s)</option>
+                                <option value="deep">Deep (~60s)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // State
+        var settings = {};
+        var history = [];
+        var selectedProvider = 'github';
+
+        try {
+            settings = JSON.parse(localStorage.getItem('ai-pr-reviewer-settings') || '{}');
+        } catch(e) { settings = {}; }
+        try {
+            history = JSON.parse(localStorage.getItem('ai-pr-reviewer-history') || '[]');
+        } catch(e) { history = []; }
+
+        // Init
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSettings();
+            renderHistory();
+            initTheme();
+            initTabs();
+            initProviderCards();
+            initScanToggles();
+        });
+
+        // Theme
+        function initTheme() {
+            var theme = localStorage.getItem('ai-pr-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+        }
+
+        function toggleTheme() {
+            var current = document.documentElement.getAttribute('data-theme');
+            var next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('ai-pr-theme', next);
+        }
+
+        // Tabs
+        function initTabs() {
+            var tabs = document.querySelectorAll('.nav-tab');
+            for (var i = 0; i < tabs.length; i++) {
+                tabs[i].addEventListener('click', function() {
+                    var allTabs = document.querySelectorAll('.nav-tab');
+                    var allContent = document.querySelectorAll('.tab-content');
+                    for (var j = 0; j < allTabs.length; j++) { allTabs[j].classList.remove('active'); }
+                    for (var j = 0; j < allContent.length; j++) { allContent[j].classList.remove('active'); }
+                    this.classList.add('active');
+                    document.getElementById('tab-' + this.getAttribute('data-tab')).classList.add('active');
+                });
+            }
+        }
+
+        // Provider Cards
+        function initProviderCards() {
+            var cards = document.querySelectorAll('.provider-card');
+            for (var i = 0; i < cards.length; i++) {
+                cards[i].addEventListener('click', function() {
+                    var all = document.querySelectorAll('.provider-card');
+                    for (var j = 0; j < all.length; j++) { all[j].classList.remove('selected'); }
+                    this.classList.add('selected');
+                    selectedProvider = this.getAttribute('data-provider');
+                });
+            }
+        }
+
+        // Scan Toggles
+        function initScanToggles() {
+            var toggles = document.querySelectorAll('.scan-toggle');
+            for (var i = 0; i < toggles.length; i++) {
+                toggles[i].addEventListener('click', function(e) {
+                    var checkbox = this.querySelector('input');
+                    if (e.target !== checkbox) {
+                        checkbox.checked = !checkbox.checked;
+                    }
+                    if (checkbox.checked) {
+                        this.classList.add('active');
+                    } else {
+                        this.classList.remove('active');
+                    }
+                });
+            }
+        }
+
+        // Trigger Review
+        function triggerReview() {
+            var owner = document.getElementById('input-owner').value.trim();
+            var repo = document.getElementById('input-repo').value.trim();
+            var prNumber = document.getElementById('input-pr').value.trim();
+            var branch = document.getElementById('input-branch').value.trim();
+            var sha = document.getElementById('input-sha').value.trim();
+
+            if (!owner || !repo || !prNumber) {
+                alert('Please fill in Owner, Repository, and PR Number');
+                return;
+            }
+
+            var apiUrl = settings.apiUrl || '';
+            if (!apiUrl) {
+                alert('Please configure the API URL in Settings first');
+                return;
+            }
+
+            var scans = [];
+            var checkboxes = document.querySelectorAll('.scan-toggle input:checked');
+            for (var i = 0; i < checkboxes.length; i++) {
+                scans.push(checkboxes[i].value);
+            }
+
+            var btn = document.getElementById('btn-review');
+            btn.disabled = true;
+            btn.textContent = 'Reviewing...';
+            showProgress();
+
+            var payload = {
+                owner: owner,
+                repo: repo,
+                pr_number: parseInt(prNumber),
+                branch: branch || 'main',
+                sha: sha || '',
+                provider: selectedProvider,
+                scans: scans
+            };
+
+            fetch(apiUrl + '/review-pr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(function(resp) { return resp.json(); })
+            .then(function(result) {
+                var historyItem = {
+                    id: Date.now(),
+                    owner: owner,
+                    repo: repo,
+                    pr_number: parseInt(prNumber),
+                    provider: selectedProvider,
+                    result: result,
+                    timestamp: new Date().toISOString()
+                };
+                history.unshift(historyItem);
+                if (history.length > 50) { history = history.slice(0, 50); }
+                localStorage.setItem('ai-pr-reviewer-history', JSON.stringify(history));
+                renderHistory();
+                renderResult(result, payload);
+            })
+            .catch(function(error) {
+                renderResult({
+                    error: error.message,
+                    risk_level: 'unknown',
+                    summary: 'Failed to connect to the review API. Check your API URL in Settings.'
+                }, payload);
+            })
+            .finally(function() {
+                btn.disabled = false;
+                btn.textContent = '\u25B6 Start Review';
+                hideProgress();
+            });
+        }
+
+        function showProgress() {
+            document.getElementById('scan-progress').classList.add('active');
+            animateProgress();
+        }
+
+        function hideProgress() {
+            document.getElementById('scan-progress').classList.remove('active');
+        }
+
+        function animateProgress() {
+            var fill = document.getElementById('progress-fill');
+            var steps = document.querySelectorAll('#progress-steps li');
+            var step = 0;
+            var interval = setInterval(function() {
+                if (step >= steps.length) { clearInterval(interval); return; }
+                for (var i = 0; i < steps.length; i++) {
+                    steps[i].classList.remove('running', 'done');
+                }
+                for (var i = 0; i < step; i++) {
+                    steps[i].classList.add('done');
+                    steps[i].textContent = '\u2713 ' + steps[i].textContent.replace(/^[\u2713\u25CB\u25CF]\s*/, '');
+                }
+                steps[step].classList.add('running');
+                fill.style.width = ((step + 1) / steps.length * 100) + '%';
+                step++;
+            }, 1200);
+        }
+
+        // Render Result
+        function renderResult(result, payload) {
+            var risk = (result.risk_level || 'unknown').toLowerCase();
+            var container = document.getElementById('results-container');
+            var findings = result.findings || {};
+            var security = findings.security || {};
+            var recommendations = result.recommendations || [];
+            var summary = result.summary || result.ai_summary || result.error || 'No summary available.';
+            var duration = result.duration_ms ? (result.duration_ms / 1000).toFixed(1) + 's' : '-';
+
+            var recsHtml = '';
+            if (recommendations.length > 0) {
+                recsHtml = '<h4 style="margin-top: 16px; font-size: 14px;">Recommendations</h4><ul class="recommendations-list">';
+                for (var i = 0; i < recommendations.length && i < 5; i++) {
+                    var rec = recommendations[i];
+                    var action = typeof rec === 'string' ? rec : (rec.action || '');
+                    recsHtml += '<li>' + action + '</li>';
+                }
+                recsHtml += '</ul>';
+            }
+
+            container.innerHTML =
+                '<div class="result-card">' +
+                '  <div class="result-header">' +
+                '    <strong>' + payload.owner + '/' + payload.repo + ' #' + payload.pr_number + '</strong>' +
+                '    <span class="risk-badge risk-' + risk + '">' + risk + '</span>' +
+                '  </div>' +
+                '  <div class="result-body">' +
+                '    <div class="result-meta">' +
+                '      <span>Branch: ' + (payload.branch || 'main') + '</span>' +
+                '      <span>Duration: ' + duration + '</span>' +
+                '      <span>Provider: ' + selectedProvider + '</span>' +
+                '    </div>' +
+                '    <p style="margin-bottom: 16px; color: var(--text-secondary);">' + summary + '</p>' +
+                '    <table class="findings-table">' +
+                '      <thead><tr><th>Severity</th><th>Count</th></tr></thead>' +
+                '      <tbody>' +
+                '        <tr><td>Critical</td><td>' + (security.critical || 0) + '</td></tr>' +
+                '        <tr><td>High</td><td>' + (security.high || 0) + '</td></tr>' +
+                '        <tr><td>Medium</td><td>' + (security.medium || 0) + '</td></tr>' +
+                '        <tr><td>Low</td><td>' + (security.low || 0) + '</td></tr>' +
+                '      </tbody>' +
+                '    </table>' +
+                recsHtml +
+                '  </div>' +
+                '</div>';
+        }
+
+        // History
+        function renderHistory() {
+            var list = document.getElementById('history-list');
+            var countEl = document.getElementById('history-count');
+            countEl.textContent = history.length;
+
+            if (history.length === 0) {
+                list.innerHTML = '<div class="empty-state"><h3>No reviews yet</h3><p>Trigger a PR review to see results here</p></div>';
+                return;
+            }
+
+            var html = '';
+            for (var i = 0; i < history.length; i++) {
+                var item = history[i];
+                var risk = (item.result && item.result.risk_level) ? item.result.risk_level.toLowerCase() : 'unknown';
+                var time = new Date(item.timestamp).toLocaleString();
+                var dur = (item.result && item.result.duration_ms) ? (item.result.duration_ms / 1000).toFixed(1) + 's' : '';
+
+                html += '<div class="history-item">' +
+                    '<div class="history-left">' +
+                    '  <div class="icon-box">' + (item.provider === 'gitlab' ? '\u25C6' : '\u25CF') + '</div>' +
+                    '  <div class="info"><h4>' + item.owner + '/' + item.repo + ' #' + item.pr_number + '</h4><p>' + time + '</p></div>' +
+                    '</div>' +
+                    '<div class="history-right">' +
+                    '  <span class="duration">' + dur + '</span>' +
+                    '  <span class="risk-badge risk-' + risk + '">' + risk + '</span>' +
+                    '</div>' +
+                    '</div>';
+            }
+            list.innerHTML = html;
+        }
+
+        function clearHistory() {
+            if (confirm('Clear all review history?')) {
+                history = [];
+                localStorage.setItem('ai-pr-reviewer-history', '[]');
+                renderHistory();
+            }
+        }
+
+        // Context Files
+        function uploadContext() {
+            var name = document.getElementById('context-name').value.trim();
+            var content = document.getElementById('context-content').value.trim();
+            if (!name || !content) { alert('Provide both a name and content'); return; }
+            var apiUrl = settings.apiUrl;
+            if (!apiUrl) { alert('Configure API URL in Settings first'); return; }
+
+            fetch(apiUrl + '/context', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, content: content })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.success) {
+                    alert('Context file "' + name + '" uploaded!');
+                    document.getElementById('context-name').value = '';
+                    document.getElementById('context-content').value = '';
+                } else {
+                    alert('Upload failed: ' + (result.error || 'Unknown'));
+                }
+            })
+            .catch(function(e) { alert('Failed: ' + e.message); });
+        }
+
+        // Settings
+        function loadSettings() {
+            document.getElementById('setting-api-url').value = settings.apiUrl || '';
+            document.getElementById('setting-ai-provider').value = settings.aiProvider || 'bedrock';
+            document.getElementById('setting-model').value = settings.model || 'moonshotai.kimi-k2.5';
+            document.getElementById('setting-fail-on').value = settings.failOn || 'critical';
+            document.getElementById('setting-cost-threshold').value = settings.costThreshold || 50;
+            document.getElementById('setting-kiro-depth').value = settings.kiroDepth || 'standard';
+        }
+
+        function saveSettings() {
+            settings = {
+                apiUrl: document.getElementById('setting-api-url').value.trim(),
+                aiProvider: document.getElementById('setting-ai-provider').value,
+                model: document.getElementById('setting-model').value.trim(),
+                failOn: document.getElementById('setting-fail-on').value,
+                costThreshold: document.getElementById('setting-cost-threshold').value,
+                kiroDepth: document.getElementById('setting-kiro-depth').value
+            };
+            localStorage.setItem('ai-pr-reviewer-settings', JSON.stringify(settings));
+            alert('Settings saved!');
+        }
+    </script>
+</body>
+</html>

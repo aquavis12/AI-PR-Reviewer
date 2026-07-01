@@ -1,0 +1,112 @@
+# AI PR Reviewer — Drop this into any repo to enable automated security reviews.
+#
+# Setup:
+#   1. Copy this file to .github/workflows/ai-review.yml in your repo
+#   2. Set repository secret: AI_REVIEWER_API_URL (your Lambda Function URL)
+#   3. (Optional) Set AI_REVIEWER_TOKEN for private API authentication
+#
+# That's it. Every PR will now get an AI security review posted as a comment.
+
+name: AI Security Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+  statuses: write
+
+jobs:
+  ai-review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    # Skip draft PRs and bot-created PRs
+    if: github.event.pull_request.draft == false && github.actor != 'dependabot[bot]'
+    
+    steps:
+      - name: AI Security Scan
+        id: scan
+        env:
+          AI_REVIEWER_API_URL: ${{ secrets.AI_REVIEWER_API_URL }}
+          AI_REVIEWER_TOKEN: ${{ secrets.AI_REVIEWER_TOKEN }}
+        run: |
+          # Build auth header if token is set
+          AUTH_HEADER=""
+          if [ -n "$AI_REVIEWER_TOKEN" ]; then
+            AUTH_HEADER="-H 'Authorization: Bearer $AI_REVIEWER_TOKEN'"
+          fi
+          
+          # Call the AI PR Reviewer API
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${AI_REVIEWER_API_URL}" \
+            -H 'Content-Type: application/json' \
+            -H 'X-GitHub-Event: pull_request' \
+            $AUTH_HEADER \
+            -d '{
+              "action": "${{ github.event.action }}",
+              "number": ${{ github.event.pull_request.number }},
+              "pull_request": {
+                "head": {
+                  "ref": "${{ github.head_ref }}",
+                  "sha": "${{ github.event.pull_request.head.sha }}",
+                  "repo": {
+                    "clone_url": "${{ github.event.pull_request.head.repo.clone_url }}"
+                  }
+                },
+                "base": {
+                  "ref": "${{ github.base_ref }}",
+                  "repo": {
+                    "owner": { "login": "${{ github.repository_owner }}" },
+                    "name": "${{ github.event.repository.name }}"
+                  }
+                },
+                "title": "${{ github.event.pull_request.title }}",
+                "user": { "login": "${{ github.event.pull_request.user.login }}" }
+              }
+            }')
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+          
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "::warning::AI Review returned HTTP $HTTP_CODE — review is advisory, not blocking"
+            exit 0
+          fi
+          
+          # Extract results
+          RISK=$(echo "$BODY" | jq -r '.risk_level // "unknown"')
+          SAFE=$(echo "$BODY" | jq -r '.safe_to_merge // true')
+          COMMENT_URL=$(echo "$BODY" | jq -r '.comment_url // ""')
+          
+          echo "risk_level=$RISK" >> $GITHUB_OUTPUT
+          echo "safe_to_merge=$SAFE" >> $GITHUB_OUTPUT
+          echo "comment_url=$COMMENT_URL" >> $GITHUB_OUTPUT
+          
+          # Fail the check only for critical findings
+          if [ "$RISK" = "critical" ]; then
+            echo "::error::Critical security vulnerability detected — see PR comment for details"
+            exit 1
+          fi
+
+      - name: Job Summary
+        if: always()
+        run: |
+          RISK="${{ steps.scan.outputs.risk_level }}"
+          SAFE="${{ steps.scan.outputs.safe_to_merge }}"
+          URL="${{ steps.scan.outputs.comment_url }}"
+          
+          echo "## 🛡️ AI Security Review" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Risk Level | **${RISK:-unknown}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Safe to Merge | ${SAFE:-unknown} |" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$URL" ]; then
+            echo "| Review Comment | [View]($URL) |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Powered by [AI PR Reviewer](https://github.com/aquavis12/AI-PR-Reviewer)_" >> $GITHUB_STEP_SUMMARY

@@ -24,6 +24,8 @@ flowchart LR
 
 **Key:** Each scan runs in an isolated **Lambda MicroVM** (Firecracker). The MicroVM clones the repo, reads your `.ai-review/` context files, runs tools, and is **destroyed immediately** — zero residual state.
 
+> **Why Lambda MicroVMs?** See [below](#why-lambda-microvms-for-pr-review).
+
 ---
 
 ## Integration Options
@@ -155,6 +157,57 @@ When triggered, the orchestrator:
 ```
 
 Untrusted PR code never touches the orchestrator environment.
+
+---
+
+## Why Lambda MicroVMs for PR Review
+
+Traditional CI-based code review tools run in shared environments — the same runner that lints your code also processes the next PR. This is dangerous when you're reviewing **untrusted code from external contributors.**
+
+### The Problem
+
+When a PR arrives, the reviewer needs to:
+- `git clone` the PR branch (could contain malicious hooks)
+- `pip install` / `npm install` dependencies (could execute arbitrary code via `setup.py`, `postinstall`)
+- Run security tools that parse untrusted code (parsers can be exploited)
+- Read `package.json`, `requirements.txt`, `pom.xml` (supply chain attack vectors)
+
+In a shared environment, a malicious PR can:
+- Steal secrets from ENV vars
+- Infect the runner for future jobs
+- Exfiltrate source code from other repos
+- Mine crypto on your compute
+
+### The Solution: Firecracker Isolation
+
+Lambda MicroVMs run each scan in a **dedicated Firecracker VM**:
+
+| Without MicroVMs | With MicroVMs |
+|------------------|---------------|
+| Malicious `setup.py` escapes to host | Contained in disposable VM |
+| `postinstall` scripts access shared secrets | No secrets in VM — only scan tools |
+| Infected runner affects next job | VM destroyed after scan — nothing persists |
+| Cross-contamination between PRs | Each PR = fresh VM, isolated network |
+| Reviewer needs to trust the code it reviews | Reviewer doesn't care — VM is expendable |
+
+### Why Not Just Docker / Lambda / ECS?
+
+| Option | Isolation Level | Problem |
+|--------|----------------|---------|
+| Lambda (standard) | Process-level | Can't `git clone`, install packages, run multi-step tools |
+| Docker (ECS/Fargate) | Container-level | Shared kernel, container escapes possible, slower cold start |
+| EC2 instance | Full VM | Expensive, slow to provision per-PR, wasteful |
+| **Lambda MicroVM** | **Firecracker VM** | **Full isolation, millisecond boot, auto-destroy, pay-per-ms** |
+
+Lambda MicroVMs give you:
+- **Full filesystem** — clone repos, install packages, run any binary
+- **Firecracker boundary** — hardware-level isolation, not just namespaces
+- **Millisecond boot** — no cold-start penalty like EC2
+- **Auto-destroy** — terminated after use, no cleanup needed
+- **Internet egress** — can fetch packages from registries during scan
+- **Pay-per-ms** — only charged while the scan runs (~5-30 seconds)
+
+This makes Lambda MicroVMs the **ideal execution environment** for reviewing untrusted code — you get VM-level isolation with serverless economics.
 
 ---
 

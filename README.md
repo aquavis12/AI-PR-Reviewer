@@ -145,7 +145,9 @@ Same files, both approaches.
 When triggered, the orchestrator:
 
 ```
-1. Spawn MicroVM (Firecracker isolation)
+1. Spawn MicroVM from pre-baked image (boots in ms from snapshot)
+   └── Image already has: git, bandit, tfsec, npm audit, gitleaks,
+       checkov, cfn-lint, infracost, OWASP dep-check, AWS CLI, etc.
 2. Clone PR branch into VM
 3. Read .ai-review/ context from the clone
 4. Detect languages → select relevant tools
@@ -155,6 +157,44 @@ When triggered, the orchestrator:
 8. Post structured review comment on PR
 9. Set commit status check (pass/fail)
 ```
+
+### Pre-Baked MicroVM Image
+
+The MicroVM image is a **Docker image built once and snapshotted**. Every scan boots from this snapshot — no cold installs, no downloading tools at runtime.
+
+```
+microvm-image/Dockerfile contains:
+├── Python 3.11 + bandit, pip-audit, ruff, safety, semgrep, checkov, detect-secrets
+├── Node.js + npm audit, eslint-security, retire.js
+├── Java JDK + Maven + OWASP dependency-check
+├── Terraform tools: tfsec, infracost
+├── CloudFormation: cfn-lint, cfn-nag
+├── Secrets: gitleaks, trufflehog
+├── AWS CLI v2
+├── Git, curl, jq, unzip
+└── server.py (HTTP executor — receives commands from orchestrator)
+```
+
+**Build the image once:**
+```bash
+# Build and push to Lambda MicroVM image registry
+cd microvm-image
+docker build -t code-review-scanner .
+# Zip and upload to S3, then create MicroVM image
+aws lambda-microvms create-microvm-image \
+  --name pr-review-scanner \
+  --code-artifact uri=s3://YOUR_BUCKET/microvm-image.zip \
+  --base-image-arn arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1
+```
+
+After that, every PR review:
+1. Boots a MicroVM from the snapshot (**milliseconds**, not minutes)
+2. Runs scans using pre-installed tools
+3. Gets destroyed
+
+No downloading packages at scan time. No `pip install bandit` on every PR. Tools are baked in.
+
+> This is similar to how [AWS demonstrated Lambda MicroVMs](https://www.youtube.com/watch?v=paoEOWbyBxE) — pre-cooked container → snapshot → instant boot → execute → destroy.
 
 Untrusted PR code never touches the orchestrator environment.
 
@@ -255,6 +295,9 @@ AI-PR-Reviewer/
 │   ├── config.py                # YAML + env var config loader
 │   ├── context_manager.py       # Reads .ai-review/ from cloned repo
 │   └── iac_scanner.py           # tfsec, checkov, cfn-lint, infracost
+├── microvm-image/
+│   ├── Dockerfile               # Pre-baked image with ALL security tools
+│   └── server.py                # HTTP executor (runs inside the MicroVM)
 ├── providers/
 │   ├── base.py                  # Abstract provider interface (PRInfo, ReviewComment)
 │   ├── github.py                # GitHub API (PRs, comments, status, webhooks)
@@ -276,7 +319,7 @@ AI-PR-Reviewer/
 ├── lambda_handler.py            # AWS Lambda entry point (webhook receiver)
 ├── Dockerfile                   # Self-hosted container option
 ├── config.example.yaml          # Configuration template
-├── requirements.txt
+├── requirements.txt             # Orchestrator deps (boto3, requests, awscli)
 ├── .gitignore
 └── LICENSE (MIT)
 ```

@@ -37,3 +37,8 @@ config.yaml
 
 # Node (for Kiro)
 node_modules/
+
+# Empty legacy folders (OneDrive lock artifacts)
+context/
+frontend/
+.versions/

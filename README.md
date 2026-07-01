@@ -209,6 +209,39 @@ Lambda MicroVMs give you:
 
 This makes Lambda MicroVMs the **ideal execution environment** for reviewing untrusted code — you get VM-level isolation with serverless economics.
 
+### How Is This Different From GitHub/GitLab Runners?
+
+GitHub Actions and GitLab CI runners are designed for **building and testing your own code** — not for safely executing **untrusted external code**. Here's the key difference:
+
+| | GitHub/GitLab Runners | AI PR Reviewer (MicroVM) |
+|-|----------------------|--------------------------|
+| **Trust model** | Trusts the code it runs (your repo) | Treats ALL code as hostile |
+| **Secrets exposure** | Runner has access to repo secrets, OIDC tokens | MicroVM has ZERO secrets — only scan tools |
+| **Persistence** | Runner reuses workspace, caches between jobs | VM destroyed after every single scan |
+| **Blast radius** | Compromised runner can access other workflows, secrets, artifacts | Compromised VM = nothing — it's already dead |
+| **External PRs** | Fork PRs can access secrets (if misconfigured) | External code never touches your infra |
+| **Multi-step execution** | Limited by job timeout, step isolation is process-level | Full VM with filesystem, network, any binary |
+| **What runs the tools** | Your runner (shared with CI/CD) | Dedicated disposable VM (separate from your CI) |
+
+**The core difference:**
+
+- **Runners** = "I trust this code, let me build/test it"
+- **MicroVM** = "I don't trust this code, let me scan it in a cage and throw the cage away"
+
+### When Runners Are Fine vs When You Need MicroVMs
+
+| Scenario | Runner OK? | MicroVM Needed? |
+|----------|-----------|-----------------|
+| Reviewing PRs from your own team | Yes | Optional |
+| Reviewing PRs from external contributors | Risky | **Yes** |
+| Open source repo (anyone can PR) | Dangerous | **Yes** |
+| Scanning packages before adoption | No | **Yes** |
+| Running `pip install` on untrusted package | No | **Yes** |
+| Static analysis on diff only (no install) | Yes | Optional |
+| Org with compliance requirements (SOC2, PCI) | Depends | **Yes** (audit trail + isolation) |
+
+**TL;DR:** If you only review PRs from trusted teammates, runners work fine. The moment you accept PRs from forks, external contributors, or scan untrusted packages — you need the isolation that MicroVMs provide. Runners weren't designed to be sacrificial.
+
 ---
 
 ## Project Structure
